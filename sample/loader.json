@@ -1,0 +1,12 @@
+{
+    "default": "Sample booboot",
+    "entries": [
+        {
+            "label": "Sample booboot",
+            "path": "kernel.elf",
+            "protocol": "handover",
+            "cmdline": "Hello from booboot!",
+            "modules": []
+        }
+    ]
+}
