@@ -37,8 +37,8 @@ pub fn build(b: *std.Build) !void {
         "./zig-out/bios.fd",
     });
 
-    runStep.dependOn(&buildStep.step);
-    runStep.dependOn(&efiCopy.step);
-    runStep.dependOn(&fetchBios.step);
+    efiCopy.step.dependOn(&buildStep.step);
+    fetchBios.step.dependOn(&efiCopy.step);
+    qemuStep.step.dependOn(&fetchBios.step);
     runStep.dependOn(&qemuStep.step);
 }
