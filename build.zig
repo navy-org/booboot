@@ -33,6 +33,7 @@ pub fn build(b: *std.Build) !void {
         .os_tag = std.Target.Os.Tag.uefi,
         .abi = std.Target.Abi.msvc,
     });
+
     const optimize = b.standardOptimizeOption(.{});
     const loader = b.addExecutable(.{
         .name = "booboot",
@@ -43,6 +44,19 @@ pub fn build(b: *std.Build) !void {
             .imports = &.{},
         }),
     });
+
+    const arch = b.addModule("arch", .{
+        .root_source_file = b.path("./src/loader/arch/x86_64/root.zig"),
+    });
+
+    const handover = b.addModule("handover", .{
+        .root_source_file = b.path("./src/specs/handover/root.zig"),
+    });
+
+    arch.addImport("flags", b.addModule("flags", .{ .root_source_file = b.path("./src/loader/arch/flags.zig") }));
+    arch.addImport("handover", handover);
+    loader.root_module.addImport("handover", handover);
+    loader.root_module.addImport("arch", arch);
 
     try runDemo(b, loader);
     b.installArtifact(loader);

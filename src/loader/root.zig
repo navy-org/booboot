@@ -15,10 +15,11 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 const std = @import("std");
+const arch = @import("arch");
 const uefi = std.os.uefi;
 
 const logger = @import("./logger.zig").log;
-const openFile = @import("./file.zig").openFile;
+const file = @import("./file.zig");
 const Config = @import("./config.zig").Config;
 
 pub const std_options: std.Options = .{
@@ -27,18 +28,26 @@ pub const std_options: std.Options = .{
 };
 
 pub fn main() void {
-    const cfgFile = openFile("loader.json") catch |e| {
-        std.log.err("Couldn't open loader.json {any}", .{e});
+    const cfgFile = file.openFile("loader.json") catch |e| {
+        std.log.err("couldn't open loader.json {any}", .{e});
         _ = uefi.system_table.boot_services.?.stall(5 * 1000 * 1000);
         return;
     };
 
     const cfg = Config.fromFile(cfgFile) catch |e| {
-        std.log.err("Couldn't read or parse loader.json {any}", .{e});
+        std.log.err("couldn't read or parse loader.json {any}", .{e});
         _ = uefi.system_table.boot_services.?.stall(5 * 1000 * 1000);
         return;
     };
 
-    std.log.info("Loading {s}", .{cfg.getDefault()});
+    arch.paging_init(file.image() catch {
+        unreachable;
+    }) catch |e| {
+        std.log.err("couldn't initiate paging {any}", .{e});
+        _ = uefi.system_table.boot_services.?.stall(5 * 1000 * 1000);
+        return;
+    };
+
+    std.log.info("loading {s}", .{cfg.getDefault()});
     _ = uefi.system_table.boot_services.?.stall(5 * 1000 * 1000);
 }

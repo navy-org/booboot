@@ -22,7 +22,7 @@ var _fs: ?*uefi.protocol.SimpleFileSystem = null;
 
 const EFI_BY_HANDLE_PROTOCOL = uefi.tables.OpenProtocolAttributes{ .by_handle_protocol = true };
 
-fn image() !*uefi.protocol.LoadedImage {
+pub fn image() !*uefi.protocol.LoadedImage {
     if (_image) |img| {
         return img;
     }
@@ -45,7 +45,7 @@ fn image() !*uefi.protocol.LoadedImage {
     }
 }
 
-fn fs() !*uefi.protocol.SimpleFileSystem {
+pub fn fs() !*uefi.protocol.SimpleFileSystem {
     if (_fs) |f| {
         return f;
     }
@@ -73,6 +73,8 @@ pub fn openFile(path: []const u8) !*uefi.protocol.File {
         uefi.pool_allocator,
         path,
     );
+
+    defer uefi.pool_allocator.free(transPath);
 
     std.mem.replaceScalar(u16, transPath, @intCast('/'), @intCast('\\'));
     const rootDir = try (try fs()).openVolume();

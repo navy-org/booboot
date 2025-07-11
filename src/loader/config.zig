@@ -33,6 +33,10 @@ pub const Config = struct {
         entries: []Entry,
     };
 
+    pub fn deinit(self: Config) void {
+        self.cfg.deinit();
+    }
+
     pub fn fromFile(file: *uefi.protocol.File) !Config {
         var r = std.json.reader(uefi.pool_allocator, file.reader());
         const cfg = try std.json.parseFromTokenSource(Schema, uefi.pool_allocator, &r, .{});
