@@ -1,6 +1,9 @@
 const std = @import("std");
-const logger = @import("./logger.zig").log;
 const uefi = std.os.uefi;
+
+const logger = @import("./logger.zig").log;
+const openFile = @import("./file.zig").openFile;
+const Config = @import("./config.zig").Config;
 
 pub const std_options: std.Options = .{
     .log_level = .debug,
@@ -8,6 +11,18 @@ pub const std_options: std.Options = .{
 };
 
 pub fn main() void {
-    std.log.info("Hello, World!", .{});
+    const cfgFile = openFile("loader.json") catch |e| {
+        std.log.err("Couldn't open loader.json {any}", .{e});
+        _ = uefi.system_table.boot_services.?.stall(5 * 1000 * 1000);
+        return;
+    };
+
+    const cfg = Config.fromFile(cfgFile) catch |e| {
+        std.log.err("Couldn't read or parse loader.json {any}", .{e});
+        _ = uefi.system_table.boot_services.?.stall(5 * 1000 * 1000);
+        return;
+    };
+
+    std.log.info("Loading {s}", .{cfg.getDefault()});
     _ = uefi.system_table.boot_services.?.stall(5 * 1000 * 1000);
 }
