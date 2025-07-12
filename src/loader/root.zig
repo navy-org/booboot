@@ -15,7 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 const std = @import("std");
-const arch = @import("arch");
+const paging = @import("arch").paging;
 const uefi = std.os.uefi;
 
 const logger = @import("./logger.zig").log;
@@ -41,7 +41,7 @@ pub fn main() void {
         return;
     };
 
-    arch.paging_init(file.image() catch {
+    paging.init(file.image() catch {
         unreachable;
     }) catch |e| {
         std.log.err("couldn't initiate paging {any}", .{e});

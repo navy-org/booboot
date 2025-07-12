@@ -17,15 +17,49 @@
 const std = @import("std");
 const uefi = std.os.uefi;
 
+const paging = @import("arch").paging;
 const file = @import("./file.zig");
 
 pub fn loadBinary(path: []const u8) !void {
     const elf = try file.openFile(path);
     const hdr = try std.elf.Header.read(elf);
-    const phdr = hdr.program_header_iterator(elf);
-    _ = phdr;
+    var phdrs = hdr.program_header_iterator(elf);
 
-    if (hdr.is_64) {} else {
-        return error.NotSupported32Bits;
+    while (try phdrs.next()) |phdr| {
+        if (hdr.is_64) {} else {
+            return error.NotSupported32Bits;
+        }
+
+        if (phdr.p_type == std.elf.PT_LOAD) {
+            std.log.debug("loading segment between 0x{x:0>16} & 0x{x:0>16}", .{
+                phdr.p_vaddr,
+                phdr.p_vaddr + phdr.p_memsz,
+            });
+
+            var pages: [*]align(std.heap.pageSize()) u8 = undefined;
+            const len = std.mem.alignForward(
+                usize,
+                phdr.p_memsz,
+                std.heap.pageSize(),
+            );
+            try uefi.system_table.boot_services.?.allocatePages(
+                uefi.tables.AllocateType.allocate_any_pages,
+                uefi.tables.MemoryType.loader_data,
+                len / std.heap.pageSize(),
+                &pages,
+            ).err();
+            @memset(pages[0..len], 0);
+
+            try paging.root().map(
+                phdr.p_vaddr,
+                @intFromPtr(pages),
+                len,
+                paging.MapFlag.read | paging.MapFlag.write | paging.MapFlag.execute,
+            );
+
+            try elf.seekableStream().seekTo(phdr.p_offset);
+            _ = try elf.reader().read(pages[0..phdr.p_filesz]);
+            @memset(pages[phdr.p_filesz..phdr.p_memsz], 0);
+        }
     }
 }

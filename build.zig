@@ -26,6 +26,8 @@ fn bareboneKernel(b: *std.Build, opti: std.builtin.OptimizeMode) *std.Build.Step
         .code_model = .kernel,
         .target = b.resolveTargetQuery(target),
     });
+
+    exe.setLinkerScript(b.path("sample/src/link.ld"));
     exe.addIncludePath(b.path("sample/src"));
     exe.addCSourceFiles(.{
         .root = b.path("sample/src"),
