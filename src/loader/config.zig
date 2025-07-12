@@ -43,7 +43,17 @@ pub const Config = struct {
         return .{ .cfg = cfg };
     }
 
-    pub fn getDefault(self: Config) []const u8 {
-        return self.cfg.value.default orelse self.cfg.value.entries[0].label;
+    pub fn getDefault(self: Config) !Entry {
+        if (self.cfg.value.default == null) {
+            return self.cfg.value.entries[0];
+        }
+
+        for (self.cfg.value.entries) |e| {
+            if (std.mem.eql(u8, e.label, self.cfg.value.default.?)) {
+                return e;
+            }
+        }
+
+        return error.LoaderDefaultEntryNotFound;
     }
 };

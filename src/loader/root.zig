@@ -21,6 +21,7 @@ const uefi = std.os.uefi;
 const logger = @import("./logger.zig").log;
 const file = @import("./file.zig");
 const Config = @import("./config.zig").Config;
+const loadBinary = @import("./elf.zig").loadBinary;
 
 pub const std_options: std.Options = .{
     .log_level = .debug,
@@ -48,6 +49,19 @@ pub fn main() void {
         return;
     };
 
-    std.log.info("loading {s}", .{cfg.getDefault()});
+    const entry = cfg.getDefault() catch |e| {
+        std.log.err("couldn't find default entry {any}", .{e});
+        _ = uefi.system_table.boot_services.?.stall(5 * 1000 * 1000);
+        return;
+    };
+
+    loadBinary(entry.path) catch |e| {
+        std.log.err("couldn't load kernel file {any}", .{e});
+        _ = uefi.system_table.boot_services.?.stall(5 * 1000 * 1000);
+        return;
+    };
+
+    std.log.info("loading {s}", .{entry.label});
+
     _ = uefi.system_table.boot_services.?.stall(5 * 1000 * 1000);
 }

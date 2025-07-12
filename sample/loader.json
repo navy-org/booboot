@@ -6,7 +6,9 @@
             "path": "kernel.elf",
             "protocol": "handover",
             "cmdline": "Hello from booboot!",
-            "modules": []
+            "modules": [
+                "logo.tga"
+            ]
         }
     ]
 }
