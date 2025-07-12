@@ -85,6 +85,13 @@ pub const Space = struct {
         };
     }
 
+    pub fn deinit(self: *Space) !void {
+        try uefi.system_table.boot_services.?.freePages(
+            @alignCast(@ptrCast(self.root)),
+            1,
+        ).err();
+    }
+
     fn getEntryIndex(virt: u64, comptime level: u8) u64 {
         const shift: u64 = 12 + level * 9;
         return (virt & (0x1ff << shift)) >> shift;
@@ -158,6 +165,7 @@ pub fn init(image: *uefi.protocol.LoadedImage) !void {
     }
 
     root_page = try .blank();
+    errdefer root_page.deinit() catch @panic("failed to free address space");
 
     std.log.debug("mapping boot-agent image...", .{});
     try root_page.map(

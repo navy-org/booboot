@@ -21,7 +21,7 @@ const uefi = std.os.uefi;
 const logger = @import("./logger.zig").log;
 const file = @import("./file.zig");
 const Config = @import("./config.zig").Config;
-const loadBinary = @import("./elf.zig").loadBinary;
+const loader = @import("./loader.zig");
 
 pub const std_options: std.Options = .{
     .log_level = .debug,
@@ -55,11 +55,19 @@ pub fn main() void {
         return;
     };
 
-    loadBinary(entry.path) catch |e| {
+    loader.loadBinary(entry.path) catch |e| {
         std.log.err("couldn't load kernel file {any}", .{e});
         _ = uefi.system_table.boot_services.?.stall(5 * 1000 * 1000);
         return;
     };
+
+    const mods = loader.loadModules(entry.modules) catch |e| {
+        std.log.err("couldn't load modules {any}", .{e});
+        _ = uefi.system_table.boot_services.?.stall(5 * 1000 * 1000);
+        return;
+    };
+
+    _ = mods;
 
     std.log.info("loading {s}", .{entry.label});
 

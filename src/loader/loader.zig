@@ -19,9 +19,12 @@ const uefi = std.os.uefi;
 
 const paging = @import("arch").paging;
 const file = @import("./file.zig");
+pub const ONE_GIB = 1 * 1024 * 1024 * 1024;
 
 pub fn loadBinary(path: []const u8) !void {
     const elf = try file.openFile(path);
+    defer elf.close() catch @panic("failed to close binary file");
+
     const hdr = try std.elf.Header.read(elf);
     var phdrs = hdr.program_header_iterator(elf);
 
@@ -50,6 +53,11 @@ pub fn loadBinary(path: []const u8) !void {
             ).err();
             @memset(pages[0..len], 0);
 
+            errdefer uefi.system_table.boot_services.?.freePages(
+                pages,
+                len / std.heap.pageSize(),
+            ).err() catch @panic("failed to free pages");
+
             try paging.root().map(
                 phdr.p_vaddr,
                 @intFromPtr(pages),
@@ -62,4 +70,26 @@ pub fn loadBinary(path: []const u8) !void {
             @memset(pages[phdr.p_filesz..phdr.p_memsz], 0);
         }
     }
+}
+
+pub fn loadModules(modules: [][]const u8) !std.ArrayList([]u8) {
+    var modAddr = std.ArrayList([]u8).init(uefi.pool_allocator);
+    errdefer {
+        for (modAddr.items) |mod| {
+            std.os.uefi.pool_allocator.free(mod);
+        }
+
+        modAddr.deinit();
+    }
+
+    for (modules) |mod| {
+        var f = try file.openFile(mod);
+        defer f.close() catch @panic("couldn't close module file");
+
+        try modAddr.append(
+            try f.reader().readAllAlloc(uefi.pool_allocator, 4 * ONE_GIB),
+        );
+    }
+
+    return modAddr;
 }
