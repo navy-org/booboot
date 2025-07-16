@@ -17,6 +17,8 @@
 const std = @import("std");
 const uefi = std.os.uefi;
 
+const FileWrapper = @import("./file.zig").Wrapper;
+
 pub const Config = struct {
     cfg: std.json.Parsed(Schema),
 
@@ -37,8 +39,8 @@ pub const Config = struct {
         self.cfg.deinit();
     }
 
-    pub fn fromFile(file: *uefi.protocol.File) !Config {
-        var r = std.json.reader(uefi.pool_allocator, file.reader());
+    pub fn fromFile(file: FileWrapper) !Config {
+        var r = std.json.reader(uefi.pool_allocator, file.deprecatedReader());
         const cfg = try std.json.parseFromTokenSource(Schema, uefi.pool_allocator, &r, .{});
         return .{ .cfg = cfg };
     }

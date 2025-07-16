@@ -18,15 +18,62 @@ const std = @import("std");
 const paging = @import("arch").paging;
 const uefi = std.os.uefi;
 
-const logger = @import("./logger.zig").log;
+const logger = @import("./logger.zig");
 const file = @import("./file.zig");
 const Config = @import("./config.zig").Config;
 const loader = @import("./loader.zig");
+const utils = @import("./utils.zig");
+const applyProtocol = @import("./protocols/root.zig").applyProtocol;
 
 pub const std_options: std.Options = .{
     .log_level = .debug,
-    .logFn = logger,
+    .logFn = logger.log,
 };
+
+pub fn assert(ok: bool, ret: usize) void {
+    if (!ok) {
+        const img = file.image() catch @panic("");
+        std.log.debug("Failed at {x}({x})", .{ ret, ret - @intFromPtr(img.image_base) });
+        unreachable;
+    }
+}
+
+fn allocateStack(sz: usize) ![]align(std.heap.pageSize()) u8 {
+    var pages: [*]align(std.heap.pageSize()) u8 = undefined;
+    const len = std.mem.alignForward(usize, sz, std.heap.pageSize());
+
+    try uefi.system_table.boot_services.?.allocatePages(
+        uefi.tables.AllocateType.allocate_any_pages,
+        uefi.tables.MemoryType.loader_data,
+        len / std.heap.pageSize(),
+        &pages,
+    ).err();
+
+    @memset(pages[0..sz], 0);
+
+    return pages[0..sz];
+}
+
+pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
+    std.log.err("Zig panic! {s}", .{msg});
+    const img = file.image() catch @panic("couldn't get efi image");
+    std.log.err("main address {x}", .{@intFromPtr(img.image_base)});
+
+    if (ret_addr) |addr| {
+        std.log.err("Return address: {x} ({x})", .{ addr, addr - @intFromPtr(img.image_base) });
+    }
+
+    std.log.err("Stack trace:", .{});
+
+    var iter = std.debug.StackIterator.init(ret_addr orelse @returnAddress(), null);
+    defer iter.deinit();
+
+    while (iter.next()) |address| {
+        std.log.err("    * 0x{x:0>16}", .{address});
+    }
+
+    while (true) {}
+}
 
 pub fn main() void {
     const cfgFile = file.openFile("loader.json") catch |e| {
@@ -55,7 +102,7 @@ pub fn main() void {
         return;
     };
 
-    loader.loadBinary(entry.path) catch |e| {
+    const hdr = loader.loadBinary(entry.path) catch |e| {
         std.log.err("couldn't load kernel file {any}", .{e});
         _ = uefi.system_table.boot_services.?.stall(5 * 1000 * 1000);
         return;
@@ -67,9 +114,24 @@ pub fn main() void {
         return;
     };
 
-    _ = mods;
+    const stack = allocateStack(utils.kib(16)) catch |e| {
+        std.log.err("couldn't allocate stack: {any}", .{e});
+        _ = uefi.system_table.boot_services.?.stall(5 * 1000 * 1000);
+        return;
+    };
 
     std.log.info("loading {s}", .{entry.label});
 
+    applyProtocol(
+        entry.protocol,
+        hdr,
+        stack,
+    ) catch |e| {
+        std.log.err("couldn't get boot protocol: {any}", .{e});
+        _ = uefi.system_table.boot_services.?.stall(5 * 1000 * 1000);
+        return;
+    };
+
+    _ = mods;
     _ = uefi.system_table.boot_services.?.stall(5 * 1000 * 1000);
 }

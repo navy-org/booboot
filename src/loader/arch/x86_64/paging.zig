@@ -19,8 +19,8 @@ const handover = @import("handover");
 const uefi = std.os.uefi;
 
 pub const MapFlag = @import("flags").MapFlag;
+pub var root_page: Space = undefined;
 
-var root_page: Space = undefined;
 const pSize: usize = std.heap.pageSize();
 const ONE_GIB = 1 * 1024 * 1024 * 1024;
 
