@@ -21,8 +21,6 @@ const paging = @import("arch").paging;
 const file = @import("./file.zig");
 const utils = @import("./utils.zig");
 
-var mmap_key: usize = 0;
-
 pub fn loadBinary(path: []const u8) !std.elf.Header {
     const elf = try file.openFile(path);
     defer elf.file.close() catch @panic("failed to close binary file");
@@ -47,16 +45,16 @@ pub fn loadBinary(path: []const u8) !std.elf.Header {
                 phdr.p_memsz,
                 std.heap.pageSize(),
             );
-            try uefi.system_table.boot_services.?.allocatePages(
-                uefi.tables.AllocateType.allocate_any_pages,
-                uefi.tables.MemoryType.loader_data,
+            try uefi.system_table.boot_services.?._allocatePages(
+                .any,
+                .loader_data,
                 len / std.heap.pageSize(),
-                &pages,
+                @ptrCast(&pages),
             ).err();
             @memset(pages[0..len], 0);
 
-            errdefer uefi.system_table.boot_services.?.freePages(
-                pages,
+            errdefer uefi.system_table.boot_services.?._freePages(
+                @ptrCast(pages),
                 len / std.heap.pageSize(),
             ).err() catch @panic("failed to free pages");
 
@@ -98,45 +96,20 @@ pub fn loadModules(modules: [][]const u8) !std.ArrayList([]u8) {
     return modAddr;
 }
 
-pub fn deinit() !void {
+pub fn deinit(info: uefi.tables.MemoryMapInfo) !void {
     try uefi.system_table.boot_services.?.exitBootServices(
         uefi.handle,
-        mmap_key,
-    ).err();
+        info.key,
+    );
 }
 
-pub fn mmapSnapshot() ![]uefi.tables.MemoryDescriptor {
-    var mmap_size: usize = 0;
-    var descriptor_size: usize = 0;
-    var descriptor_version: u32 = 0;
-    var mmap: ?[*]uefi.tables.MemoryDescriptor = undefined;
+pub fn mmapSnapshot() !uefi.tables.MemoryMapSlice {
+    const info = try uefi.system_table.boot_services.?.getMemoryMapInfo();
 
-    if (uefi.system_table.boot_services.?.getMemoryMap(
-        &mmap_size,
-        mmap,
-        &mmap_key,
-        &descriptor_size,
-        &descriptor_version,
-    ) != .buffer_too_small) {
-        return error.ExpectedBufferTooSmall;
-    }
-
-    mmap_size += 2 * descriptor_size;
-    var mem: [*]align(8) u8 = undefined;
-    try uefi.system_table.boot_services.?.allocatePool(
+    const mem = try uefi.system_table.boot_services.?.allocatePool(
         .boot_services_data,
-        mmap_size,
-        &mem,
-    ).err();
-    mmap = @ptrCast(@alignCast(mem));
+        (info.len + 2) * info.descriptor_size,
+    );
 
-    try uefi.system_table.boot_services.?.getMemoryMap(
-        &mmap_size,
-        mmap,
-        &mmap_key,
-        &descriptor_size,
-        &descriptor_version,
-    ).err();
-
-    return mmap.?[0..(mmap_size / descriptor_size)];
+    return try uefi.system_table.boot_services.?.getMemoryMap(mem);
 }

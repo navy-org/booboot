@@ -42,11 +42,11 @@ fn allocateStack(sz: usize) ![]align(std.heap.pageSize()) u8 {
     var pages: [*]align(std.heap.pageSize()) u8 = undefined;
     const len = std.mem.alignForward(usize, sz, std.heap.pageSize());
 
-    try uefi.system_table.boot_services.?.allocatePages(
-        uefi.tables.AllocateType.allocate_any_pages,
-        uefi.tables.MemoryType.loader_data,
+    try uefi.system_table.boot_services.?._allocatePages(
+        .any,
+        .loader_data,
         len / std.heap.pageSize(),
-        &pages,
+        @ptrCast(&pages),
     ).err();
 
     @memset(pages[0..sz], 0);
@@ -78,13 +78,11 @@ pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, ret_addr: ?usize) nor
 pub fn main() void {
     const cfgFile = file.openFile("loader.json") catch |e| {
         std.log.err("couldn't open loader.json {any}", .{e});
-        _ = uefi.system_table.boot_services.?.stall(5 * 1000 * 1000);
         return;
     };
 
     const cfg = Config.fromFile(cfgFile) catch |e| {
         std.log.err("couldn't read or parse loader.json {any}", .{e});
-        _ = uefi.system_table.boot_services.?.stall(5 * 1000 * 1000);
         return;
     };
 
@@ -92,31 +90,33 @@ pub fn main() void {
         unreachable;
     }) catch |e| {
         std.log.err("couldn't initiate paging {any}", .{e});
-        _ = uefi.system_table.boot_services.?.stall(5 * 1000 * 1000);
+        uefi.system_table.boot_services.?.stall(5 * 1000 * 1000) catch {};
         return;
     };
 
     const entry = cfg.getDefault() catch |e| {
         std.log.err("couldn't find default entry {any}", .{e});
-        _ = uefi.system_table.boot_services.?.stall(5 * 1000 * 1000);
+        uefi.system_table.boot_services.?.stall(5 * 1000 * 1000) catch {};
         return;
     };
 
     const hdr = loader.loadBinary(entry.path) catch |e| {
         std.log.err("couldn't load kernel file {any}", .{e});
-        _ = uefi.system_table.boot_services.?.stall(5 * 1000 * 1000);
+        uefi.system_table.boot_services.?.stall(5 * 1000 * 1000) catch {};
         return;
     };
 
     const mods = loader.loadModules(entry.modules) catch |e| {
         std.log.err("couldn't load modules {any}", .{e});
-        _ = uefi.system_table.boot_services.?.stall(5 * 1000 * 1000);
+        uefi.system_table.boot_services.?.stall(5 * 1000 * 1000) catch {};
         return;
     };
 
+    _ = mods;
+
     const stack = allocateStack(utils.kib(16)) catch |e| {
         std.log.err("couldn't allocate stack: {any}", .{e});
-        _ = uefi.system_table.boot_services.?.stall(5 * 1000 * 1000);
+        uefi.system_table.boot_services.?.stall(5 * 1000 * 1000) catch {};
         return;
     };
 
@@ -128,10 +128,7 @@ pub fn main() void {
         stack,
     ) catch |e| {
         std.log.err("couldn't get boot protocol: {any}", .{e});
-        _ = uefi.system_table.boot_services.?.stall(5 * 1000 * 1000);
+        uefi.system_table.boot_services.?.stall(5 * 1000 * 1000) catch {};
         return;
     };
-
-    _ = mods;
-    _ = uefi.system_table.boot_services.?.stall(5 * 1000 * 1000);
 }

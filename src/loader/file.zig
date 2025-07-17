@@ -21,7 +21,7 @@ const File = uefi.protocol.File;
 var _image: ?*uefi.protocol.LoadedImage = null;
 var _fs: ?*uefi.protocol.SimpleFileSystem = null;
 
-const EFI_BY_HANDLE_PROTOCOL = uefi.tables.OpenProtocolAttributes{ .by_handle_protocol = true };
+const EFI_BY_HANDLE_PROTOCOL = uefi.tables.OpenProtocolArgs{ .by_handle_protocol = .{} };
 
 pub const Wrapper = struct {
     //! CLEAN ME: Check future EFI File API
@@ -53,17 +53,12 @@ pub fn image() !*uefi.protocol.LoadedImage {
         return img;
     }
 
-    var guid = uefi.protocol.LoadedImage.guid;
-
     if (uefi.system_table.boot_services) |bs| {
-        try bs.openProtocol(
+        _image = try bs.openProtocol(
+            uefi.protocol.LoadedImage,
             uefi.handle,
-            @alignCast(&guid),
-            @ptrCast(&_image),
-            uefi.handle,
-            null,
             EFI_BY_HANDLE_PROTOCOL,
-        ).err();
+        );
 
         std.log.info("Image base: {x}", .{@intFromPtr(_image.?.image_base)});
 
@@ -78,17 +73,12 @@ pub fn fs() !*uefi.protocol.SimpleFileSystem {
         return f;
     }
 
-    var guid = uefi.protocol.SimpleFileSystem.guid;
-
     if ((try image()).device_handle) |hdev| {
-        try uefi.system_table.boot_services.?.openProtocol(
+        _fs = try uefi.system_table.boot_services.?.openProtocol(
+            uefi.protocol.SimpleFileSystem,
             hdev,
-            @alignCast(&guid),
-            @ptrCast(&_fs),
-            uefi.handle,
-            null,
             EFI_BY_HANDLE_PROTOCOL,
-        ).err();
+        );
     } else {
         return error.CouldntGetDeviceHandle;
     }
