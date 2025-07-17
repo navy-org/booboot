@@ -10,12 +10,17 @@ pub fn apply(hdr: std.elf.Header, stack: []align(std.heap.pageSize()) u8) !void 
     std.log.debug("applying handover protocol", .{});
     var buffer: [*]align(std.heap.pageSize()) u8 = undefined;
 
-    try uefi.system_table.boot_services.?.allocatePages(
-        uefi.tables.AllocateType.allocate_any_pages,
-        uefi.tables.MemoryType.loader_data,
+    try uefi.system_table.boot_services.?._allocatePages(
+        .any,
+        .loader_data,
         kib(16) / std.heap.pageSize(),
-        &buffer,
+        @ptrCast(&buffer),
     ).err();
+
+    errdefer _ = uefi.system_table.boot_services.?._freePages(
+        @ptrCast(buffer),
+        kib(16) / std.heap.pageSize(),
+    );
 
     @memset(buffer[0..kib(16)], 0);
 
@@ -33,13 +38,6 @@ pub fn apply(hdr: std.elf.Header, stack: []align(std.heap.pageSize()) u8) !void 
         .size = kib(16),
     });
 
-    try paging.root_page.map(
-        @intFromPtr(stack.ptr) + handover.UPPER_HALF,
-        @intFromPtr(stack.ptr),
-        stack.len,
-        paging.MapFlag.read | paging.MapFlag.write,
-    );
-
     try payload.append(.{
         .tag = @intFromEnum(handover.Tags.STACK),
         .start = @intFromPtr(stack.ptr),
@@ -48,8 +46,10 @@ pub fn apply(hdr: std.elf.Header, stack: []align(std.heap.pageSize()) u8) !void 
 
     std.log.debug("Jump to ip: {x}, cr3: {x}", .{ hdr.entry, @intFromPtr(paging.root_page.root) });
 
-    for (try loader.mmapSnapshot()) |mmap| {
-        const tag: handover.Tags = switch (mmap.type) {
+    const mmap = try loader.mmapSnapshot();
+    var it = mmap.iterator();
+    while (it.next()) |m| {
+        const tag: handover.Tags = switch (m.type) {
             .loader_code,
             .loader_data,
             .boot_services_code,
@@ -63,8 +63,8 @@ pub fn apply(hdr: std.elf.Header, stack: []align(std.heap.pageSize()) u8) !void 
 
         const entry = handover.Record{
             .tag = @intFromEnum(tag),
-            .start = mmap.physical_start,
-            .size = mmap.number_of_pages * std.heap.pageSize(),
+            .start = m.physical_start,
+            .size = m.number_of_pages * std.heap.pageSize(),
         };
 
         _ = entry;
@@ -79,7 +79,7 @@ pub fn apply(hdr: std.elf.Header, stack: []align(std.heap.pageSize()) u8) !void 
     });
 
     const ptr: usize = payload.finalize("booboot", handover.UPPER_HALF);
-    try loader.deinit();
+    try loader.deinit(mmap.info);
 
     asm volatile (
         \\ cli
