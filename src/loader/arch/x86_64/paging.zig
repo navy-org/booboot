@@ -71,11 +71,11 @@ pub const Space = struct {
     pub fn blank() !Space {
         var page: [*]align(4096) u8 = undefined;
 
-        try uefi.system_table.boot_services.?.allocatePages(
-            uefi.tables.AllocateType.allocate_any_pages,
-            uefi.tables.MemoryType.loader_data,
+        try uefi.system_table.boot_services.?._allocatePages(
+            .any,
+            .loader_data,
             1,
-            &page,
+            @ptrCast(&page),
         ).err();
 
         @memset(page[0..std.heap.pageSize()], 0);
@@ -86,7 +86,7 @@ pub const Space = struct {
     }
 
     pub fn deinit(self: *Space) !void {
-        try uefi.system_table.boot_services.?.freePages(
+        try uefi.system_table.boot_services.?._freePages(
             @alignCast(@ptrCast(self.root)),
             1,
         ).err();
