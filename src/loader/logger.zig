@@ -18,17 +18,20 @@ const std = @import("std");
 const uefi = std.os.uefi;
 
 fn uefiWriteOpaque(_: *const anyopaque, bytes: []const u8) !usize {
-    const utf16Str = try std.unicode.utf8ToUtf16LeAllocZ(uefi.pool_allocator, bytes);
-    defer uefi.pool_allocator.free(utf16Str);
-
-    if (uefi.system_table.con_out) |cout| {
-        _ = try cout.outputString(utf16Str);
+    for (bytes) |b| {
+        if (uefi.system_table.con_out) |cout| {
+            const s: [2:0]u16 = .{ @intCast(b), 0 };
+            _ = try cout.outputString(&s);
+        }
     }
 
     return bytes.len;
 }
 
-pub const uefiWriter = std.io.AnyWriter{ .context = @ptrFromInt(0xdeadbeef), .writeFn = uefiWriteOpaque };
+const uefiWriter: std.io.AnyWriter = .{
+    .context = @ptrFromInt(0xdeadbeef),
+    .writeFn = uefiWriteOpaque,
+};
 
 pub fn log(
     comptime level: std.log.Level,
@@ -53,6 +56,7 @@ pub fn log(
 
         const prefix = if (scope != .default) @tagName(scope) else "";
         cout.setAttribute(.{ .foreground = color }) catch {};
+
         uefiWriter.print("{s: >6}", .{text}) catch {};
         cout.setAttribute(.{ .foreground = .white }) catch {};
         uefiWriter.print("{s: <7}", .{prefix}) catch {};

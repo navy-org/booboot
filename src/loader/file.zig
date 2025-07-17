@@ -16,11 +16,37 @@
 
 const std = @import("std");
 const uefi = std.os.uefi;
+const File = uefi.protocol.File;
 
 var _image: ?*uefi.protocol.LoadedImage = null;
 var _fs: ?*uefi.protocol.SimpleFileSystem = null;
 
 const EFI_BY_HANDLE_PROTOCOL = uefi.tables.OpenProtocolAttributes{ .by_handle_protocol = true };
+
+pub const Wrapper = struct {
+    //! CLEAN ME: Check future EFI File API
+    file: *File,
+
+    pub fn seekableStream(self: Wrapper) std.io.SeekableStream(
+        *File,
+        File.SeekError,
+        File.SeekError,
+        File.setPosition,
+        undefined,
+        undefined,
+        undefined,
+    ) {
+        return .{ .context = self.file };
+    }
+
+    pub fn deprecatedReader(self: Wrapper) std.io.GenericReader(
+        *File,
+        File.ReadError,
+        File.read,
+    ) {
+        return .{ .context = self.file };
+    }
+};
 
 pub fn image() !*uefi.protocol.LoadedImage {
     if (_image) |img| {
@@ -38,6 +64,8 @@ pub fn image() !*uefi.protocol.LoadedImage {
             null,
             EFI_BY_HANDLE_PROTOCOL,
         ).err();
+
+        std.log.info("Image base: {x}", .{@intFromPtr(_image.?.image_base)});
 
         return _image.?;
     } else {
@@ -68,7 +96,7 @@ pub fn fs() !*uefi.protocol.SimpleFileSystem {
     return _fs.?;
 }
 
-pub fn openFile(path: []const u8) !*uefi.protocol.File {
+pub fn openFile(path: []const u8) !Wrapper {
     const transPath = try std.unicode.utf8ToUtf16LeAllocZ(
         uefi.pool_allocator,
         path,
@@ -78,9 +106,11 @@ pub fn openFile(path: []const u8) !*uefi.protocol.File {
 
     std.mem.replaceScalar(u16, transPath, @intCast('/'), @intCast('\\'));
     const rootDir = try (try fs()).openVolume();
-    return try rootDir.open(
-        transPath,
-        .read,
-        .{ .read_only = true },
-    );
+    return .{
+        .file = try rootDir.open(
+            transPath,
+            .read,
+            .{ .read_only = true },
+        ),
+    };
 }

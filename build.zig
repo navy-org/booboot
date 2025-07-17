@@ -22,9 +22,11 @@ fn bareboneKernel(b: *std.Build, opti: std.builtin.OptimizeMode) *std.Build.Step
 
     const exe = b.addExecutable(.{
         .name = "barebone",
-        .optimize = opti,
-        .code_model = .kernel,
-        .target = b.resolveTargetQuery(target),
+        .root_module = b.createModule(.{
+            .target = b.resolveTargetQuery(target),
+            .optimize = opti,
+            .code_model = .kernel,
+        }),
     });
 
     exe.setLinkerScript(b.path("sample/src/link.ld"));
@@ -64,14 +66,17 @@ fn runDemo(b: *std.Build, loader: *std.Build.Step.Compile) !void {
         "qemu-system-x86_64",
         "-no-reboot",
         "-no-shutdown",
-        "-display",
-        "none",
-        "-serial",
+        // "-display",
+        // "none",
+        "-debugcon",
+        // "-serial",
         "mon:stdio",
         "-drive",
         "format=raw,file=fat:rw:./zig-out/sysroot,media=disk",
         "-bios",
         "./zig-out/bios.fd",
+        // "-s",
+        // "-S",
     });
 
     efiCopy.step.dependOn(&buildStep.step);
