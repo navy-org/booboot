@@ -16,32 +16,45 @@
 
 const std = @import("std");
 const uefi = std.os.uefi;
-const kib = @import("../utils.zig").kib;
 const paging = @import("arch").paging;
 
 const loader = @import("../loader.zig");
+const kib = @import("../utils.zig").kib;
+const ConfigEntry = @import("../config.zig").Config.Entry;
 const handover = @import("handover");
 
-pub fn apply(hdr: std.elf.Header, stack: []align(std.heap.pageSize()) u8) !void {
-    std.log.debug("applying handover protocol", .{});
-    var buffer: [*]align(std.heap.pageSize()) u8 = undefined;
+pub fn apply(
+    elf: loader.ElfFile,
+    stack: []align(std.heap.pageSize()) u8,
+    mods: std.ArrayList(loader.ModFile),
+    config: ConfigEntry,
+) !void {
+    defer {
+        for (mods.items) |mod| {
+            uefi.pool_allocator.free(mod.content);
+        }
 
+        mods.deinit();
+        elf.close() catch @panic("couldn't close elf file");
+    }
+
+    std.log.debug("applying handover protocol", .{});
+
+    var buffer: [*]align(std.heap.pageSize()) u8 = undefined;
     try uefi.system_table.boot_services.?._allocatePages(
         .any,
         .loader_data,
         kib(16) / std.heap.pageSize(),
         @ptrCast(&buffer),
     ).err();
+    @memset(buffer[0..kib(16)], 0);
 
     errdefer _ = uefi.system_table.boot_services.?._freePages(
         @ptrCast(buffer),
         kib(16) / std.heap.pageSize(),
     );
 
-    @memset(buffer[0..kib(16)], 0);
-
     var payload = try handover.Builder.init(buffer[0..kib(16)]);
-
     try payload.append(.{
         .tag = @intFromEnum(handover.Tags.MAGIC),
         .start = 0,
@@ -53,14 +66,64 @@ pub fn apply(hdr: std.elf.Header, stack: []align(std.heap.pageSize()) u8) !void 
         .start = @intFromPtr(buffer),
         .size = kib(16),
     });
-
     try payload.append(.{
         .tag = @intFromEnum(handover.Tags.STACK),
         .start = @intFromPtr(stack.ptr),
         .size = stack.len,
     });
 
-    std.log.debug("Jump to ip: {x}, cr3: {x}", .{ hdr.entry, @intFromPtr(paging.root_page.root) });
+    const reqs = try loader.loadSection(".handover", elf, handover.Request);
+    if (reqs[0].tag != @intFromEnum(handover.Tags.MAGIC)) {
+        return error.HandoverRecordCorrupted;
+    }
+
+    for (reqs[1 .. reqs.len - 1]) |r| {
+        switch (@as(handover.Tags, @enumFromInt(r.tag))) {
+            .CMDLINE => {
+                try payload.append(.{
+                    .tag = r.tag,
+                    .content = .{ .misc = payload.addString(config.cmdline) },
+                });
+            },
+            .FILE => {
+                for (mods.items) |mod| {
+                    try payload.append(.{
+                        .tag = r.tag,
+                        .start = @intFromPtr(mod.content.ptr),
+                        .size = mod.content.len,
+                        .content = .{ .file = .{ .name = payload.addString(mod.filename) } },
+                    });
+                }
+            },
+            .FB => {
+                const fb = try loader.framebuffer();
+                try payload.append(.{
+                    .tag = r.tag,
+                    .start = fb.frame_buffer_base,
+                    .size = fb.frame_buffer_size,
+                    .content = .{ .fb = .{
+                        .width = @intCast(fb.info.horizontal_resolution),
+                        .height = @intCast(fb.info.vertical_resolution),
+                        .pitch = @intCast(fb.info.pixels_per_scan_line * @sizeOf(u32)),
+                        .format = handover.Framebuffer.BGRX8888,
+                    } },
+                });
+            },
+            .RSDP => {
+                try payload.append(.{
+                    .tag = r.tag,
+                    .start = try loader.findAcpi(),
+                    .size = std.heap.pageSize(),
+                });
+            },
+            else => {
+                std.log.warn("invalid tag {x}, skipping...", .{r.tag});
+                continue;
+            },
+        }
+    }
+
+    std.log.debug("Jump to ip: {x}, cr3: {x}", .{ elf.hdr.entry, @intFromPtr(paging.root_page.root) });
 
     const mmap = try loader.mmapSnapshot();
     var it = mmap.iterator();
@@ -103,10 +166,9 @@ pub fn apply(hdr: std.elf.Header, stack: []align(std.heap.pageSize()) u8) !void 
         \\ call *%[entry]
         :
         : [page] "r" (@intFromPtr(paging.root_page.root)),
-          [entry] "r" (hdr.entry),
+          [entry] "r" (elf.hdr.entry),
           [stack] "r" (@intFromPtr(stack.ptr) + stack.len + handover.UPPER_HALF),
           [payload] "{rsi}" (ptr),
           [magic] "{rdi}" (@intFromEnum(handover.Tags.MAGIC)),
-        : "cr3", "memory"
     );
 }

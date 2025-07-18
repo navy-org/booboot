@@ -48,16 +48,16 @@ pub const Framebuffer = extern struct {
 
 pub const File = extern struct {
     name: u32,
-    meta: u32,
+    meta: u32 = 0,
 };
 
 pub const Record = extern struct {
     tag: u32,
     flags: u32 = 0,
-    start: usize,
-    size: usize,
-    content: extern union { fb: Framebuffer, file: File, more: u64 } = .{
-        .more = 0,
+    start: usize = 0,
+    size: usize = 0,
+    content: extern union { fb: Framebuffer, file: File, misc: u64 } = .{
+        .misc = 0,
     },
 
     pub fn end(self: Record) usize {
@@ -92,7 +92,7 @@ pub const Record = extern struct {
     pub fn halfUnder(self: Record, other: Record) Record {
         if (self.overlapsWith(other) and self.start < other.start) {
             return .{
-                .tag = self.tag,
+                .tag = other.tag,
                 .start = self.start,
                 .size = other.start - self.start,
             };
@@ -106,8 +106,7 @@ pub const Record = extern struct {
             self.end() > other.end())
         {
             return .{
-                .tag = self.tag,
-                .flags = 0,
+                .tag = other.tag,
                 .start = other.end(),
                 .size = self.end() - other.end(),
             };
@@ -132,7 +131,7 @@ pub const Payload = extern struct {
 pub const Request = extern struct {
     tag: u32,
     flags: u32,
-    more: u64 = 0,
+    misc: u64 = 0,
 };
 
 pub const Builder = struct {
@@ -157,8 +156,10 @@ pub const Builder = struct {
 
     pub fn append(self: *Builder, record: Record) !void {
         const alloc = self.fba.allocator();
+
         if (record.tag != @intFromEnum(Tags.MAGIC) and
-            record.tag != @intFromEnum(Tags.END) and record.size == 0)
+            record.tag != @intFromEnum(Tags.END) and
+            record.tag != @intFromEnum(Tags.CMDLINE) and record.size == 0)
         {
             return;
         }
@@ -168,8 +169,7 @@ pub const Builder = struct {
                 record.isJustAfter(other) and record.isMergeable())
             {
                 _ = self.records.swapRemove(idx);
-                try self.records.append(
-                    alloc,
+                try self.append(
                     .{
                         .start = other.start,
                         .size = other.size + record.size,
@@ -183,8 +183,7 @@ pub const Builder = struct {
                 record.isJustBefore(other) and record.isMergeable())
             {
                 _ = self.records.swapRemove(idx);
-                try self.records.append(
-                    alloc,
+                try self.append(
                     .{
                         .start = other.start - record.size,
                         .size = other.size + record.size,
@@ -203,9 +202,9 @@ pub const Builder = struct {
                     const under = other.halfUnder(record);
                     const over = other.halfOver(record);
 
-                    try self.records.append(alloc, record);
-                    try self.records.append(alloc, under);
-                    try self.records.append(alloc, over);
+                    try self.append(other);
+                    try self.append(under);
+                    try self.append(over);
                     return;
                 } else if (!record.isMergeable() and other.isMergeable()) {
                     _ = self.records.swapRemove(idx);
@@ -213,13 +212,13 @@ pub const Builder = struct {
                     const under = record.halfUnder(other);
                     const over = record.halfOver(other);
 
-                    try self.records.append(alloc, other);
-                    try self.records.append(alloc, under);
-                    try self.records.append(alloc, over);
+                    try self.append(record);
+                    try self.append(under);
+                    try self.append(over);
                     return;
                 } else if (record.contains(other)) {
                     _ = self.records.swapRemove(idx);
-                    try self.records.append(alloc, record);
+                    try self.append(record);
                 } else if (other.contains(record)) {} else {
                     record.print();
                     other.print();
@@ -236,10 +235,10 @@ pub const Builder = struct {
         try self.records.append(alloc, record);
     }
 
-    fn addString(self: *Builder, s: []const u8) u32 {
+    pub fn addString(self: *Builder, s: []const u8) u32 {
         const len = s.len + 1;
         const offset = self.size - len;
-        const ptr: []u8 = @as([*]u8, @ptrFromInt(@intFromPtr(self.buffer.ptr) + offset))[0..s.len];
+        const ptr: []u8 = self.buffer[offset .. offset + len];
         @memset(ptr, 0);
 
         std.mem.copyForwards(
@@ -247,6 +246,8 @@ pub const Builder = struct {
             ptr,
             s,
         );
+
+        self.size -= len;
 
         return @intCast(offset);
     }
@@ -259,8 +260,6 @@ pub const Builder = struct {
         self.payload[0].count = @intCast(self.records.items.len);
         self.payload[0].records = @ptrFromInt(ptr + offset);
         self.payload[0].size = @intCast(self.size);
-
-        // std.log.debug("{x}", .{@intFromPtr(&self.payload[0].records[0])});
 
         return @intFromPtr(&self.payload[0]) + offset;
     }

@@ -21,9 +21,22 @@ const paging = @import("arch").paging;
 const file = @import("./file.zig");
 const utils = @import("./utils.zig");
 
-pub fn loadBinary(path: []const u8) !std.elf.Header {
+pub const ElfFile = struct {
+    hdr: std.elf.Header,
+    file: file.Wrapper,
+
+    pub fn close(self: ElfFile) !void {
+        try self.file.file.close();
+    }
+};
+
+pub const ModFile = struct {
+    filename: []const u8,
+    content: []u8,
+};
+
+pub fn loadBinary(path: []const u8) !ElfFile {
     const elf = try file.openFile(path);
-    defer elf.file.close() catch @panic("failed to close binary file");
 
     const hdr = try std.elf.Header.read(elf);
     var phdrs = hdr.program_header_iterator(elf);
@@ -71,29 +84,59 @@ pub fn loadBinary(path: []const u8) !std.elf.Header {
         }
     }
 
-    return hdr;
+    return .{ .file = elf, .hdr = hdr };
 }
 
-pub fn loadModules(modules: [][]const u8) !std.ArrayList([]u8) {
-    var modAddr = std.ArrayList([]u8).init(uefi.pool_allocator);
+pub fn loadSection(name: []const u8, elf: ElfFile, T: type) ![]align(1) T {
+    var it = elf.hdr.section_header_iterator(elf.file);
+
+    it.index = elf.hdr.shstrndx;
+    const shdr: std.elf.Shdr = (try it.next()).?;
+    it.index = 0;
+
+    while (try it.next()) |section| {
+        const other = try uefi.pool_allocator.alloc(u8, name.len);
+        defer uefi.pool_allocator.free(other);
+
+        try elf.file.seekableStream().seekTo(shdr.sh_offset + section.sh_name);
+        try elf.file.deprecatedReader().readNoEof(other);
+
+        if (std.mem.eql(u8, other, name)) {
+            const section_data = try uefi.pool_allocator.alloc(u8, section.sh_size);
+
+            try elf.file.seekableStream().seekTo(section.sh_offset);
+            try elf.file.deprecatedReader().readNoEof(section_data);
+
+            return std.mem.bytesAsSlice(T, section_data);
+        }
+    }
+
+    return error.CouldntFindSection;
+}
+
+pub fn loadModules(modules: [][]const u8) !std.ArrayList(ModFile) {
+    var mods = std.ArrayList(ModFile).init(uefi.pool_allocator);
     errdefer {
-        for (modAddr.items) |mod| {
-            std.os.uefi.pool_allocator.free(mod);
+        for (mods.items) |mod| {
+            std.os.uefi.pool_allocator.free(mod.content);
         }
 
-        modAddr.deinit();
+        mods.deinit();
     }
 
     for (modules) |mod| {
         var f = try file.openFile(mod);
         defer f.file.close() catch @panic("couldn't close module file");
 
-        try modAddr.append(
-            try f.deprecatedReader().readAllAlloc(uefi.pool_allocator, utils.gib(4)),
+        try mods.append(
+            .{
+                .filename = mod,
+                .content = try f.deprecatedReader().readAllAlloc(uefi.pool_allocator, utils.gib(4)),
+            },
         );
     }
 
-    return modAddr;
+    return mods;
 }
 
 pub fn deinit(info: uefi.tables.MemoryMapInfo) !void {
@@ -105,11 +148,48 @@ pub fn deinit(info: uefi.tables.MemoryMapInfo) !void {
 
 pub fn mmapSnapshot() !uefi.tables.MemoryMapSlice {
     const info = try uefi.system_table.boot_services.?.getMemoryMapInfo();
-
     const mem = try uefi.system_table.boot_services.?.allocatePool(
         .boot_services_data,
         (info.len + 2) * info.descriptor_size,
     );
-
     return try uefi.system_table.boot_services.?.getMemoryMap(mem);
+}
+
+pub fn framebuffer() !*uefi.protocol.GraphicsOutput.Mode {
+    const gop: ?*uefi.protocol.GraphicsOutput = try uefi.system_table.boot_services.?.locateProtocol(
+        uefi.protocol.GraphicsOutput,
+        null,
+    );
+
+    if (gop) |g| {
+        _ = try g.queryMode(g.mode.max_mode - 1);
+        try g.setMode(g.mode.max_mode - 1);
+
+        return g.mode;
+    } else {
+        return error.CouldntGetFramebuffer;
+    }
+}
+
+pub fn findAcpi() !usize {
+    var acpi2Ptr: ?usize = null;
+    var acpi1Ptr: ?usize = null;
+
+    for (0..uefi.system_table.number_of_table_entries) |i| {
+        const table = uefi.system_table.configuration_table[i];
+        if (table.vendor_guid.eql(uefi.tables.ConfigurationTable.acpi_10_table_guid)) {
+            acpi1Ptr = @intFromPtr(table.vendor_table);
+        }
+
+        if (table.vendor_guid.eql(uefi.tables.ConfigurationTable.acpi_20_table_guid)) {
+            acpi2Ptr = @intFromPtr(table.vendor_table);
+        }
+    }
+
+    if (acpi2Ptr != null) {
+        return acpi2Ptr.?;
+    } else if (acpi1Ptr != null) {
+        return acpi1Ptr.?;
+    }
+    return error.CouldntFindAcpi;
 }

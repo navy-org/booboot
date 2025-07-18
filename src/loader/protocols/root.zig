@@ -15,6 +15,8 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 const std = @import("std");
+const loader = @import("../loader.zig");
+const ConfigEntry = @import("../config.zig").Config.Entry;
 
 const Protocol = enum {
     handover,
@@ -22,8 +24,10 @@ const Protocol = enum {
 
 pub fn applyProtocol(
     name: []const u8,
-    hdr: std.elf.Header,
+    elf: loader.ElfFile,
     stack: []align(std.heap.pageSize()) u8,
+    mods: std.ArrayList(loader.ModFile),
+    config: ConfigEntry,
 ) !void {
     const prot = std.meta.stringToEnum(Protocol, name) orelse {
         return error.UnknownBootProtocol;
@@ -33,5 +37,5 @@ pub fn applyProtocol(
         .handover => @import("./handover.zig"),
     };
 
-    try mod.apply(hdr, stack);
+    try mod.apply(elf, stack, mods, config);
 }

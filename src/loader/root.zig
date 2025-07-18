@@ -30,14 +30,6 @@ pub const std_options: std.Options = .{
     .logFn = logger.log,
 };
 
-pub fn assert(ok: bool, ret: usize) void {
-    if (!ok) {
-        const img = file.image() catch @panic("");
-        std.log.debug("Failed at {x}({x})", .{ ret, ret - @intFromPtr(img.image_base) });
-        unreachable;
-    }
-}
-
 fn allocateStack(sz: usize) ![]align(std.heap.pageSize()) u8 {
     var pages: [*]align(std.heap.pageSize()) u8 = undefined;
     const len = std.mem.alignForward(usize, sz, std.heap.pageSize());
@@ -50,7 +42,6 @@ fn allocateStack(sz: usize) ![]align(std.heap.pageSize()) u8 {
     ).err();
 
     @memset(pages[0..sz], 0);
-
     return pages[0..sz];
 }
 
@@ -100,7 +91,7 @@ pub fn main() void {
         return;
     };
 
-    const hdr = loader.loadBinary(entry.path) catch |e| {
+    const elf = loader.loadBinary(entry.path) catch |e| {
         std.log.err("couldn't load kernel file {any}", .{e});
         uefi.system_table.boot_services.?.stall(5 * 1000 * 1000) catch {};
         return;
@@ -112,8 +103,6 @@ pub fn main() void {
         return;
     };
 
-    _ = mods;
-
     const stack = allocateStack(utils.kib(16)) catch |e| {
         std.log.err("couldn't allocate stack: {any}", .{e});
         uefi.system_table.boot_services.?.stall(5 * 1000 * 1000) catch {};
@@ -124,8 +113,10 @@ pub fn main() void {
 
     applyProtocol(
         entry.protocol,
-        hdr,
+        elf,
         stack,
+        mods,
+        entry,
     ) catch |e| {
         std.log.err("couldn't get boot protocol: {any}", .{e});
         uefi.system_table.boot_services.?.stall(5 * 1000 * 1000) catch {};

@@ -36,7 +36,8 @@ static void draw_logo(void) {
 }
 
 void _start(uint64_t magic, HandoverPayload *payload) {
-  (void)draw_logo;
+  char const *cmdline;
+
   printf("Handover magic: %llx", magic);
   printf("Handover payload: %llx", payload);
 
@@ -59,15 +60,19 @@ void _start(uint64_t magic, HandoverPayload *payload) {
 
     switch (record->tag) {
     case HANDOVER_FB: {
+      printf("\nFramebuffer resolution: %d x %d\n", record->fb.width,
+             record->fb.height);
       _fb = record;
       break;
     }
     case HANDOVER_CMDLINE: {
-      printf("Command line: %s", (char *)lower2upper(record->start));
+      cmdline = handover_str(payload, record->misc);
+      printf("\nCommand line: %s\n", cmdline);
       break;
     }
     case HANDOVER_FILE: {
-      if (memcmp(handover_str(payload, record->file.name), "booboot.tga", 11) ==
+      printf("\nGot file: %s\n", handover_str(payload, record->file.name));
+      if (memcmp(handover_str(payload, record->file.name), "logo.tga", 8) ==
           0) {
         _logo = record;
       }
@@ -76,7 +81,7 @@ void _start(uint64_t magic, HandoverPayload *payload) {
 
     case HANDOVER_RSDP: {
       if (memcmp((void *)lower2upper(record->start), "RSD PTR ", 8) == 0) {
-        printf("RSDP Signature matched");
+        printf("\nRSDP Signature matched\n");
       }
       break;
     }
@@ -84,9 +89,9 @@ void _start(uint64_t magic, HandoverPayload *payload) {
 
     printf("Handover tag: %s(%x)", handover_tag_name(record->tag), record->tag);
     printf("    flags: %x", record->flags);
-    printf("    start: %llx", record->start);
-    printf("    size: %llx", record->size);
-    printf("    more: %x", record->more);
+    printf("    start:%llx", record->start);
+    printf("    end: %llx", record->start + record->size);
+    printf("    misc: %x", record->misc);
   }
 
   if (_fb != NULL && _logo != NULL) {

@@ -62,7 +62,7 @@ typedef struct {
       uint32_t meta;
     } file;
 
-    uint64_t more;
+    uint64_t misc;
   };
 } HandoverRecord;
 
@@ -74,7 +74,7 @@ typedef struct {
 typedef struct {
   uint32_t tag;
   uint32_t flags;
-  uint64_t more;
+  uint64_t misc;
 } HandoverRequest;
 
 typedef void HandoverEntry(uint64_t magic, HandoverPayload const *payload);

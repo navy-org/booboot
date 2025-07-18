@@ -22,7 +22,7 @@ const FileWrapper = @import("./file.zig").Wrapper;
 pub const Config = struct {
     cfg: std.json.Parsed(Schema),
 
-    const Entry = struct {
+    pub const Entry = struct {
         label: []const u8,
         path: []const u8,
         protocol: []const u8,
