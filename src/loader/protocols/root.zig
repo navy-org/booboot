@@ -26,7 +26,7 @@ pub fn applyProtocol(
     name: []const u8,
     elf: loader.ElfFile,
     stack: []align(std.heap.pageSize()) u8,
-    mods: std.ArrayList(loader.ModFile),
+    mods: ?std.ArrayList(loader.ModFile),
     config: ConfigEntry,
 ) !void {
     const prot = std.meta.stringToEnum(Protocol, name) orelse {

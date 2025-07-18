@@ -69,11 +69,13 @@ pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, ret_addr: ?usize) nor
 pub fn main() void {
     const cfgFile = file.openFile("loader.json") catch |e| {
         std.log.err("couldn't open loader.json {any}", .{e});
+        uefi.system_table.boot_services.?.stall(5 * 1000 * 1000) catch {};
         return;
     };
 
     const cfg = Config.fromFile(cfgFile) catch |e| {
         std.log.err("couldn't read or parse loader.json {any}", .{e});
+        uefi.system_table.boot_services.?.stall(5 * 1000 * 1000) catch {};
         return;
     };
 
@@ -91,17 +93,22 @@ pub fn main() void {
         return;
     };
 
-    const elf = loader.loadBinary(entry.path) catch |e| {
+    const elf = loader.loadBinary(entry.kernel) catch |e| {
         std.log.err("couldn't load kernel file {any}", .{e});
         uefi.system_table.boot_services.?.stall(5 * 1000 * 1000) catch {};
         return;
     };
 
-    const mods = loader.loadModules(entry.modules) catch |e| {
-        std.log.err("couldn't load modules {any}", .{e});
-        uefi.system_table.boot_services.?.stall(5 * 1000 * 1000) catch {};
-        return;
-    };
+    var mods: ?std.ArrayList(loader.ModFile) = null;
+    if (entry.modules) |m| {
+        mods = loader.loadModules(m) catch |e| {
+            std.log.err("couldn't load modules {any}", .{e});
+            uefi.system_table.boot_services.?.stall(5 * 1000 * 1000) catch {};
+            return;
+        };
+    } else {
+        mods = null;
+    }
 
     const stack = allocateStack(utils.kib(16)) catch |e| {
         std.log.err("couldn't allocate stack: {any}", .{e});
@@ -109,7 +116,7 @@ pub fn main() void {
         return;
     };
 
-    std.log.info("loading {s}", .{entry.label});
+    std.log.info("loading {s}", .{entry.name});
 
     applyProtocol(
         entry.protocol,
@@ -122,4 +129,6 @@ pub fn main() void {
         uefi.system_table.boot_services.?.stall(5 * 1000 * 1000) catch {};
         return;
     };
+
+    uefi.system_table.boot_services.?.stall(5 * 1000 * 1000) catch {};
 }

@@ -54,8 +54,8 @@ pub const File = extern struct {
 pub const Record = extern struct {
     tag: u32,
     flags: u32 = 0,
-    start: usize = 0,
-    size: usize = 0,
+    start: u64 = 0,
+    size: u64 = 0,
     content: extern union { fb: Framebuffer, file: File, misc: u64 } = .{
         .misc = 0,
     },

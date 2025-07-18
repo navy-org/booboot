@@ -23,15 +23,15 @@ pub const Config = struct {
     cfg: std.json.Parsed(Schema),
 
     pub const Entry = struct {
-        label: []const u8,
-        path: []const u8,
+        name: []const u8,
+        kernel: []const u8,
         protocol: []const u8,
-        cmdline: []const u8,
-        modules: [][]const u8,
+        cmdline: ?[]const u8 = null,
+        modules: ?[][]const u8 = null,
     };
 
     const Schema = struct {
-        default: ?[]const u8,
+        default: ?[]const u8 = null,
         entries: []Entry,
     };
 
@@ -51,7 +51,7 @@ pub const Config = struct {
         }
 
         for (self.cfg.value.entries) |e| {
-            if (std.mem.eql(u8, e.label, self.cfg.value.default.?)) {
+            if (std.mem.eql(u8, e.name, self.cfg.value.default.?)) {
                 return e;
             }
         }

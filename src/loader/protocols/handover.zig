@@ -26,15 +26,17 @@ const handover = @import("handover");
 pub fn apply(
     elf: loader.ElfFile,
     stack: []align(std.heap.pageSize()) u8,
-    mods: std.ArrayList(loader.ModFile),
+    mods: ?std.ArrayList(loader.ModFile),
     config: ConfigEntry,
 ) !void {
     defer {
-        for (mods.items) |mod| {
-            uefi.pool_allocator.free(mod.content);
-        }
+        if (mods) |m| {
+            for (m.items) |mod| {
+                uefi.pool_allocator.free(mod.content);
+            }
 
-        mods.deinit();
+            m.deinit();
+        }
         elf.close() catch @panic("couldn't close elf file");
     }
 
@@ -80,19 +82,23 @@ pub fn apply(
     for (reqs[1 .. reqs.len - 1]) |r| {
         switch (@as(handover.Tags, @enumFromInt(r.tag))) {
             .CMDLINE => {
-                try payload.append(.{
-                    .tag = r.tag,
-                    .content = .{ .misc = payload.addString(config.cmdline) },
-                });
-            },
-            .FILE => {
-                for (mods.items) |mod| {
+                if (config.cmdline) |cmd| {
                     try payload.append(.{
                         .tag = r.tag,
-                        .start = @intFromPtr(mod.content.ptr),
-                        .size = mod.content.len,
-                        .content = .{ .file = .{ .name = payload.addString(mod.filename) } },
+                        .content = .{ .misc = payload.addString(cmd) },
                     });
+                }
+            },
+            .FILE => {
+                if (mods) |m| {
+                    for (m.items) |mod| {
+                        try payload.append(.{
+                            .tag = r.tag,
+                            .start = @intFromPtr(mod.content.ptr),
+                            .size = mod.content.len,
+                            .content = .{ .file = .{ .name = payload.addString(mod.filename) } },
+                        });
+                    }
                 }
             },
             .FB => {
