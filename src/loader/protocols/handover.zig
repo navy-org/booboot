@@ -83,9 +83,7 @@ pub fn apply(hdr: std.elf.Header, stack: []align(std.heap.pageSize()) u8) !void 
             .size = m.number_of_pages * std.heap.pageSize(),
         };
 
-        _ = entry;
-
-        // try payload.append(entry);
+        try payload.append(entry);
     }
 
     try payload.append(.{
