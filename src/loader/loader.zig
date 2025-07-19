@@ -87,7 +87,7 @@ pub fn loadBinary(path: []const u8) !ElfFile {
     return .{ .file = elf, .hdr = hdr };
 }
 
-pub fn loadSection(name: []const u8, elf: ElfFile, T: type) ![]align(1) T {
+pub fn loadSection(name: []const u8, elf: ElfFile, T: type) !?[]align(1) T {
     var it = elf.hdr.section_header_iterator(elf.file);
 
     it.index = elf.hdr.shstrndx;
@@ -111,7 +111,7 @@ pub fn loadSection(name: []const u8, elf: ElfFile, T: type) ![]align(1) T {
         }
     }
 
-    return error.CouldntFindSection;
+    return null;
 }
 
 pub fn loadModules(modules: [][]const u8) !std.ArrayList(ModFile) {

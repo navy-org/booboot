@@ -74,58 +74,61 @@ pub fn apply(
         .size = stack.len,
     });
 
-    const reqs = try loader.loadSection(".handover", elf, handover.Request);
-    if (reqs[0].tag != @intFromEnum(handover.Tags.MAGIC)) {
-        return error.HandoverRecordCorrupted;
-    }
+    const requests = try loader.loadSection(".handover", elf, handover.Request);
 
-    for (reqs[1 .. reqs.len - 1]) |r| {
-        switch (@as(handover.Tags, @enumFromInt(r.tag))) {
-            .CMDLINE => {
-                if (config.cmdline) |cmd| {
-                    try payload.append(.{
-                        .tag = r.tag,
-                        .content = .{ .misc = payload.addString(cmd) },
-                    });
-                }
-            },
-            .FILE => {
-                if (mods) |m| {
-                    for (m.items) |mod| {
+    if (requests) |reqs| {
+        if (reqs[0].tag != @intFromEnum(handover.Tags.MAGIC)) {
+            return error.HandoverRecordCorrupted;
+        }
+
+        for (reqs[1 .. reqs.len - 1]) |r| {
+            switch (@as(handover.Tags, @enumFromInt(r.tag))) {
+                .CMDLINE => {
+                    if (config.cmdline) |cmd| {
                         try payload.append(.{
                             .tag = r.tag,
-                            .start = @intFromPtr(mod.content.ptr),
-                            .size = mod.content.len,
-                            .content = .{ .file = .{ .name = payload.addString(mod.filename) } },
+                            .content = .{ .misc = payload.addString(cmd) },
                         });
                     }
-                }
-            },
-            .FB => {
-                const fb = try loader.framebuffer();
-                try payload.append(.{
-                    .tag = r.tag,
-                    .start = fb.frame_buffer_base,
-                    .size = fb.frame_buffer_size,
-                    .content = .{ .fb = .{
-                        .width = @intCast(fb.info.horizontal_resolution),
-                        .height = @intCast(fb.info.vertical_resolution),
-                        .pitch = @intCast(fb.info.pixels_per_scan_line * @sizeOf(u32)),
-                        .format = handover.Framebuffer.BGRX8888,
-                    } },
-                });
-            },
-            .RSDP => {
-                try payload.append(.{
-                    .tag = r.tag,
-                    .start = try loader.findAcpi(),
-                    .size = std.heap.pageSize(),
-                });
-            },
-            else => {
-                std.log.warn("invalid tag {x}, skipping...", .{r.tag});
-                continue;
-            },
+                },
+                .FILE => {
+                    if (mods) |m| {
+                        for (m.items) |mod| {
+                            try payload.append(.{
+                                .tag = r.tag,
+                                .start = @intFromPtr(mod.content.ptr),
+                                .size = mod.content.len,
+                                .content = .{ .file = .{ .name = payload.addString(mod.filename) } },
+                            });
+                        }
+                    }
+                },
+                .FB => {
+                    const fb = try loader.framebuffer();
+                    try payload.append(.{
+                        .tag = r.tag,
+                        .start = fb.frame_buffer_base,
+                        .size = fb.frame_buffer_size,
+                        .content = .{ .fb = .{
+                            .width = @intCast(fb.info.horizontal_resolution),
+                            .height = @intCast(fb.info.vertical_resolution),
+                            .pitch = @intCast(fb.info.pixels_per_scan_line * @sizeOf(u32)),
+                            .format = handover.Framebuffer.BGRX8888,
+                        } },
+                    });
+                },
+                .RSDP => {
+                    try payload.append(.{
+                        .tag = r.tag,
+                        .start = try loader.findAcpi(),
+                        .size = std.heap.pageSize(),
+                    });
+                },
+                else => {
+                    std.log.warn("invalid tag {x}, skipping...", .{r.tag});
+                    continue;
+                },
+            }
         }
     }
 
