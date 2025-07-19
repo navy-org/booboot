@@ -1,10 +1,9 @@
 .{
-    .name = .booboot_redux,
+    .name = .booboot,
     .version = "0.0.0",
-    .fingerprint = 0x8e6f7dfa2a929e30, // Changing this has security and trust implications.
-    .minimum_zig_version = "0.15.0-dev.936+fc2c1883b",
-    .dependencies = .{
-    },
+    .fingerprint = 0x42cae795a4a31da, // Changing this has security and trust implications.
+    .minimum_zig_version = "0.15.0-dev.1108+27212a3e6",
+    .dependencies = .{},
     .paths = .{
         "build.zig",
         "build.zig.zon",
