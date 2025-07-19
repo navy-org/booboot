@@ -1,4 +1,4 @@
-// Booboot - The scawy bootloaderrr
+// Booboot - The mischievous bootloaderrr
 // Copyright (C) 2025   Keyb <contact@keyb.moe>
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
