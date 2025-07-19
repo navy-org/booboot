@@ -25,7 +25,7 @@ pub const Config = struct {
     pub const Entry = struct {
         name: []const u8,
         kernel: []const u8,
-        protocol: []const u8,
+        protocol: []const u8 = "handover",
         cmdline: ?[]const u8 = null,
         modules: ?[][]const u8 = null,
     };
