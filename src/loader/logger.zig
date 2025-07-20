@@ -17,6 +17,8 @@
 const std = @import("std");
 const uefi = std.os.uefi;
 
+pub var isVerbose: bool = false;
+
 fn uefiWriteOpaque(_: *const anyopaque, bytes: []const u8) !usize {
     for (bytes) |b| {
         if (uefi.system_table.con_out) |cout| {
@@ -39,6 +41,10 @@ pub fn log(
     comptime format: []const u8,
     args: anytype,
 ) void {
+    if (!isVerbose and level == .debug) {
+        return;
+    }
+
     if (uefi.system_table.con_out) |cout| {
         const color = comptime switch (level) {
             .debug => .blue,

@@ -48,7 +48,6 @@ fn allocateStack(sz: usize) ![]align(std.heap.pageSize()) u8 {
 pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
     std.log.err("Zig panic! {s}", .{msg});
     const img = file.image() catch @panic("couldn't get efi image");
-    std.log.err("main address {x}", .{@intFromPtr(img.image_base)});
 
     if (ret_addr) |addr| {
         std.log.err("Return address: {x} ({x})", .{ addr, addr - @intFromPtr(img.image_base) });
@@ -78,6 +77,9 @@ pub fn main() void {
         uefi.system_table.boot_services.?.stall(5 * 1000 * 1000) catch {};
         return;
     };
+
+    logger.isVerbose = cfg.isVerbose();
+    std.log.debug("Image base {x}", .{@intFromPtr((file.image() catch unreachable).image_base)});
 
     paging.init(file.image() catch {
         unreachable;
@@ -116,7 +118,7 @@ pub fn main() void {
         return;
     };
 
-    std.log.info("loading {s}", .{entry.name});
+    std.log.debug("loading {s}", .{entry.name});
 
     applyProtocol(
         entry.protocol,

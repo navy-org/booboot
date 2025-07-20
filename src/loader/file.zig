@@ -60,7 +60,7 @@ pub fn image() !*uefi.protocol.LoadedImage {
             EFI_BY_HANDLE_PROTOCOL,
         );
 
-        std.log.info("Image base: {x}", .{@intFromPtr(_image.?.image_base)});
+        std.log.debug("Image base: {x}", .{@intFromPtr(_image.?.image_base)});
 
         return _image.?;
     } else {

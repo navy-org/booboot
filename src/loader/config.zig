@@ -32,11 +32,16 @@ pub const Config = struct {
 
     const Schema = struct {
         default: ?[]const u8 = null,
+        verbose: bool = false,
         entries: []Entry,
     };
 
     pub fn deinit(self: Config) void {
         self.cfg.deinit();
+    }
+
+    pub fn isVerbose(self: Config) bool {
+        return self.cfg.value.verbose;
     }
 
     pub fn fromFile(file: FileWrapper) !Config {
