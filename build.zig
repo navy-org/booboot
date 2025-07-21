@@ -110,13 +110,12 @@ pub fn build(b: *std.Build) !void {
         .root_source_file = b.path("./src/loader/arch/x86_64/root.zig"),
     });
 
-    const handover = b.addModule("handover", .{
-        .root_source_file = b.path("./src/specs/handover/root.zig"),
-    });
+    const handover = b.dependency("handover", .{});
+    const handoverMod = handover.module("handover");
 
     arch.addImport("flags", b.addModule("flags", .{ .root_source_file = b.path("./src/loader/arch/flags.zig") }));
-    arch.addImport("handover", handover);
-    loader.root_module.addImport("handover", handover);
+    arch.addImport("handover", handoverMod);
+    loader.root_module.addImport("handover", handoverMod);
     loader.root_module.addImport("arch", arch);
 
     try runDemo(b, loader);

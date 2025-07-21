@@ -3,7 +3,12 @@
     .version = "0.0.0",
     .fingerprint = 0x42cae795a4a31da, // Changing this has security and trust implications.
     .minimum_zig_version = "0.15.0-dev.1108+27212a3e6",
-    .dependencies = .{},
+    .dependencies = .{
+        .handover = .{
+            .url = "git+https://github.com/navy-org/handover-zig.git#c73e73c1923b3aedc453369aa38a7c72b5f1577b",
+            .hash = "handover-0.0.0-ALODxKsjAADHpW4Ap_MoD2J91Cn_jXOmAOv5cnmuvNqK",
+        },
+    },
     .paths = .{
         "build.zig",
         "build.zig.zon",
