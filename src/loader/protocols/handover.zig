@@ -37,7 +37,8 @@ pub fn apply(
 
             m.deinit();
         }
-        elf.close() catch @panic("couldn't close elf file");
+
+        uefi.pool_allocator.free(elf.content);
     }
 
     std.log.debug("applying handover protocol", .{});
