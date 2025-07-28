@@ -16,6 +16,7 @@
 
 const std = @import("std");
 const uefi = std.os.uefi;
+const elf = std.elf;
 
 const paging = @import("arch").paging;
 const file = @import("./file.zig");
@@ -23,11 +24,7 @@ const utils = @import("./utils.zig");
 
 pub const ElfFile = struct {
     hdr: std.elf.Header,
-    file: file.Wrapper,
-
-    pub fn close(self: ElfFile) !void {
-        try self.file.file.close();
-    }
+    content: []u8,
 };
 
 pub const ModFile = struct {
@@ -36,16 +33,37 @@ pub const ModFile = struct {
 };
 
 pub fn loadBinary(path: []const u8) !ElfFile {
-    const elf = try file.openFile(path);
+    const f = try file.openFile(path);
+    defer f.close() catch {};
 
-    const hdr = try std.elf.Header.read(elf);
-    var phdrs = hdr.program_header_iterator(elf);
+    const sz = try f.getInfoSize(.file);
+    const info_buffer = try uefi.pool_allocator.alloc(u8, sz);
+    defer uefi.pool_allocator.free(info_buffer);
 
-    while (try phdrs.next()) |phdr| {
-        if (hdr.is_64) {} else {
-            return error.NotSupported32Bits;
-        }
+    const info = try f.getInfo(.file, @alignCast(info_buffer));
+    const file_content = try uefi.pool_allocator.alloc(u8, info.file_size);
 
+    _ = try f.read(file_content);
+
+    if (!std.mem.eql(u8, file_content[0..4], elf.MAGIC)) return error.InvalidElfMagic;
+    if (file_content[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
+
+    const endian: std.builtin.Endian = switch (file_content[elf.EI_DATA]) {
+        elf.ELFDATA2LSB => .little,
+        elf.ELFDATA2MSB => .big,
+        else => return error.InvalidElfEndian,
+    };
+
+    if (file_content[elf.EI_CLASS] == elf.ELFCLASS32) {
+        return error.NotSupported32Bits;
+    }
+
+    const ehdr: *std.elf.Elf64_Ehdr = @alignCast(std.mem.bytesAsValue(elf.Elf64_Ehdr, file_content));
+    const hdr = std.elf.Header.init(ehdr.*, endian);
+
+    const phdrs: []std.elf.Phdr = @as([*]std.elf.Phdr, @ptrFromInt(@intFromPtr(file_content.ptr) + hdr.phoff))[0..hdr.phnum];
+
+    for (phdrs) |phdr| {
         if (phdr.p_type == std.elf.PT_LOAD) {
             std.log.debug("loading segment between 0x{x:0>16} & 0x{x:0>16}", .{
                 phdr.p_vaddr,
@@ -78,35 +96,28 @@ pub fn loadBinary(path: []const u8) !ElfFile {
                 paging.MapFlag.read | paging.MapFlag.write | paging.MapFlag.execute,
             );
 
-            try elf.seekableStream().seekTo(phdr.p_offset);
-            _ = try elf.deprecatedReader().read(pages[0..phdr.p_filesz]);
+            std.mem.copyForwards(u8, pages[0..phdr.p_filesz], file_content[phdr.p_offset .. phdr.p_offset + phdr.p_filesz]);
             @memset(pages[phdr.p_filesz..phdr.p_memsz], 0);
         }
     }
 
-    return .{ .file = elf, .hdr = hdr };
+    return .{ .hdr = hdr, .content = file_content };
 }
 
-pub fn loadSection(name: []const u8, elf: ElfFile, T: type) !?[]align(1) T {
-    var it = elf.hdr.section_header_iterator(elf.file);
+pub fn loadSection(name: []const u8, bin: ElfFile, T: type) !?[]align(1) T {
+    const shdrs: []std.elf.Shdr = @as([*]elf.Shdr, @ptrFromInt(@intFromPtr(bin.content.ptr) + bin.hdr.shoff))[0..bin.hdr.shnum];
+    const shstr = shdrs[bin.hdr.shstrndx];
 
-    it.index = elf.hdr.shstrndx;
-    const shdr: std.elf.Shdr = (try it.next()).?;
-    it.index = 0;
-
-    while (try it.next()) |section| {
+    for (shdrs) |shdr| {
         const other = try uefi.pool_allocator.alloc(u8, name.len);
         defer uefi.pool_allocator.free(other);
 
-        try elf.file.seekableStream().seekTo(shdr.sh_offset + section.sh_name);
-        try elf.file.deprecatedReader().readNoEof(other);
+        const offset = shstr.sh_offset + shdr.sh_name;
+        std.mem.copyForwards(u8, other, bin.content[offset .. offset + other.len]);
 
         if (std.mem.eql(u8, other, name)) {
-            const section_data = try uefi.pool_allocator.alloc(u8, section.sh_size);
-
-            try elf.file.seekableStream().seekTo(section.sh_offset);
-            try elf.file.deprecatedReader().readNoEof(section_data);
-
+            const section_data = try uefi.pool_allocator.alloc(u8, shdr.sh_size);
+            std.mem.copyForwards(u8, section_data, bin.content[shdr.sh_offset .. shdr.sh_offset + section_data.len]);
             return std.mem.bytesAsSlice(T, section_data);
         }
     }
@@ -126,12 +137,20 @@ pub fn loadModules(modules: [][]const u8) !std.ArrayList(ModFile) {
 
     for (modules) |mod| {
         var f = try file.openFile(mod);
-        defer f.file.close() catch @panic("couldn't close module file");
+        defer f.close() catch @panic("couldn't close module file");
+
+        const sz = try f.getInfoSize(.file);
+        const info_buffer = try uefi.pool_allocator.alloc(u8, sz);
+        defer uefi.pool_allocator.free(info_buffer);
+
+        const info = try f.getInfo(.file, @alignCast(info_buffer));
+        const file_content = try uefi.pool_allocator.alloc(u8, info.file_size);
+        _ = try f.read(file_content);
 
         try mods.append(
             .{
                 .filename = mod,
-                .content = try f.deprecatedReader().readAllAlloc(uefi.pool_allocator, utils.gib(4)),
+                .content = file_content,
             },
         );
     }

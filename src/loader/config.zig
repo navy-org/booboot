@@ -44,9 +44,21 @@ pub const Config = struct {
         return self.cfg.value.verbose;
     }
 
-    pub fn fromFile(file: FileWrapper) !Config {
-        var r = std.json.reader(uefi.pool_allocator, file.deprecatedReader());
-        const cfg = try std.json.parseFromTokenSource(Schema, uefi.pool_allocator, &r, .{});
+    pub fn fromFile(file: *uefi.protocol.File) !Config {
+        defer file.close() catch {};
+
+        const sz = try file.getInfoSize(.file);
+
+        const info_buffer = try uefi.pool_allocator.alloc(u8, sz);
+        defer uefi.pool_allocator.free(info_buffer);
+
+        const info = try file.getInfo(.file, @alignCast(info_buffer));
+        const file_content = try uefi.pool_allocator.alloc(u8, info.file_size);
+
+        _ = try file.read(file_content);
+
+        const cfg = try std.json.parseFromSlice(Schema, uefi.pool_allocator, file_content, .{});
+
         return .{ .cfg = cfg };
     }
 
