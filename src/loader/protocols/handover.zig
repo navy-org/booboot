@@ -165,7 +165,7 @@ pub fn apply(
         .size = 0,
     });
 
-    const ptr: usize = payload.finalize("booboot", handover.UPPER_HALF);
+    const ptr: usize = payload.finalize("booboot", handover.KERNEL_BASE);
     try loader.deinit(mmap.info);
 
     asm volatile (
@@ -177,7 +177,7 @@ pub fn apply(
         :
         : [page] "r" (@intFromPtr(paging.root_page.root)),
           [entry] "r" (elf.hdr.entry),
-          [stack] "r" (@intFromPtr(stack.ptr) + stack.len + handover.UPPER_HALF),
+          [stack] "r" (@intFromPtr(stack.ptr) + stack.len + handover.KERNEL_BASE),
           [payload] "{rsi}" (ptr),
           [magic] "{rdi}" (@intFromEnum(handover.Tags.MAGIC)),
     );

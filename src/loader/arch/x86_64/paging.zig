@@ -175,6 +175,14 @@ pub fn init(image: *uefi.protocol.LoadedImage) !void {
         MapFlag.read | MapFlag.write | MapFlag.execute,
     );
 
+    std.log.debug("mapping kernel...", .{});
+    try root_page.map(
+        handover.KERNEL_BASE + std.heap.pageSize(),
+        std.heap.pageSize(),
+        (2 * ONE_GIB) - std.heap.pageSize(),
+        MapFlag.read | MapFlag.write,
+    );
+
     std.log.debug("mapping first 4Gib of memory...", .{});
     try root_page.map(
         handover.UPPER_HALF + std.heap.pageSize(),
