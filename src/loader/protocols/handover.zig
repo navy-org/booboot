@@ -69,10 +69,17 @@ pub fn apply(
         .start = @intFromPtr(buffer),
         .size = kib(16),
     });
+
     try payload.append(.{
         .tag = @intFromEnum(handover.Tags.STACK),
         .start = @intFromPtr(stack.ptr),
         .size = stack.len,
+    });
+
+    try payload.append(.{
+        .tag = @intFromEnum(handover.Tags.KERNEL),
+        .start = elf.physicalAddr,
+        .size = elf.len,
     });
 
     const requests = try loader.loadSection(".handover", elf, handover.Request);

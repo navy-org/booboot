@@ -25,6 +25,9 @@ const utils = @import("./utils.zig");
 pub const ElfFile = struct {
     hdr: std.elf.Header,
     content: []u8,
+    physicalAddr: usize,
+    virtualAddr: usize,
+    len: usize,
 };
 
 pub const ModFile = struct {
@@ -63,45 +66,69 @@ pub fn loadBinary(path: []const u8) !ElfFile {
 
     const phdrs: []std.elf.Phdr = @as([*]std.elf.Phdr, @ptrFromInt(@intFromPtr(file_content.ptr) + hdr.phoff))[0..hdr.phnum];
 
+    var min_vaddr: usize = std.math.maxInt(usize);
+    var max_vaddr: usize = 0;
+
     for (phdrs) |phdr| {
-        if (phdr.p_type == std.elf.PT_LOAD) {
-            std.log.debug("loading segment between 0x{x:0>16} & 0x{x:0>16}", .{
-                phdr.p_vaddr,
-                phdr.p_vaddr + phdr.p_memsz,
-            });
+        if (phdr.p_type != std.elf.PT_LOAD or phdr.p_memsz == 0) {
+            continue;
+        }
 
-            var pages: [*]align(std.heap.pageSize()) u8 = undefined;
-            const len = std.mem.alignForward(
-                usize,
-                phdr.p_memsz,
-                std.heap.pageSize(),
-            );
-            try uefi.system_table.boot_services.?._allocatePages(
-                .any,
-                .loader_data,
-                len / std.heap.pageSize(),
-                @ptrCast(&pages),
-            ).err();
-            @memset(pages[0..len], 0);
+        if (phdr.p_vaddr < min_vaddr) {
+            min_vaddr = phdr.p_vaddr;
+        }
 
-            errdefer uefi.system_table.boot_services.?._freePages(
-                @ptrCast(pages),
-                len / std.heap.pageSize(),
-            ).err() catch @panic("failed to free pages");
-
-            try paging.root().map(
-                phdr.p_vaddr,
-                @intFromPtr(pages),
-                len,
-                paging.MapFlag.read | paging.MapFlag.write | paging.MapFlag.execute,
-            );
-
-            std.mem.copyForwards(u8, pages[0..phdr.p_filesz], file_content[phdr.p_offset .. phdr.p_offset + phdr.p_filesz]);
-            @memset(pages[phdr.p_filesz..phdr.p_memsz], 0);
+        if (phdr.p_vaddr + phdr.p_memsz > max_vaddr) {
+            max_vaddr = phdr.p_vaddr + phdr.p_memsz;
         }
     }
 
-    return .{ .hdr = hdr, .content = file_content };
+    var pages: [*]align(std.heap.pageSize()) u8 = undefined;
+    const len = std.mem.alignForward(
+        usize,
+        max_vaddr - min_vaddr,
+        std.heap.pageSize(),
+    );
+
+    try uefi.system_table.boot_services.?._allocatePages(
+        .any,
+        .loader_data,
+        len / std.heap.pageSize(),
+        @ptrCast(&pages),
+    ).err();
+    @memset(pages[0..len], 0);
+
+    errdefer uefi.system_table.boot_services.?._freePages(
+        @ptrCast(pages),
+        len / std.heap.pageSize(),
+    ).err() catch @panic("failed to free pages");
+
+    var fba = std.heap.FixedBufferAllocator.init(pages[0..len]);
+    const alloc = fba.allocator();
+
+    for (phdrs) |phdr| {
+        if (phdr.p_type != std.elf.PT_LOAD or phdr.p_memsz == 0) {
+            continue;
+        }
+        std.log.debug("loading segment between 0x{x:0>16} & 0x{x:0>16}", .{
+            phdr.p_vaddr,
+            phdr.p_vaddr + phdr.p_memsz,
+        });
+
+        const buffer = try alloc.alignedAlloc(u8, .fromByteUnits(std.heap.pageSize()), phdr.p_memsz);
+
+        try paging.root().map(
+            phdr.p_vaddr,
+            @intFromPtr(buffer.ptr),
+            len,
+            paging.MapFlag.read | paging.MapFlag.write | paging.MapFlag.execute,
+        );
+
+        std.mem.copyForwards(u8, buffer[0..phdr.p_filesz], file_content[phdr.p_offset .. phdr.p_offset + phdr.p_filesz]);
+        @memset(buffer[phdr.p_filesz..phdr.p_memsz], 0);
+    }
+
+    return .{ .hdr = hdr, .content = file_content, .len = len, .physicalAddr = @intFromPtr(pages), .virtualAddr = min_vaddr };
 }
 
 pub fn loadSection(name: []const u8, bin: ElfFile, T: type) !?[]align(1) T {
